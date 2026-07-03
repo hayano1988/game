@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ARフレンド | WebARキャラクターアプリ</title>
+<script src="https://cdn.jsdelivr.net/npm/aframe@1.5.0/dist/aframe-master.min.js"></script>
+<style>
+  :root{
+    --ink:#3a3550;
+    --bg:#fdf6ec;
+    --mint:#7ee0c3;
+    --orange:#ffa94f;
+    --pink:#ff8fb1;
+    --card:#ffffff;
+    --shadow:0 10px 30px rgba(58,53,80,.14);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;overflow:hidden;font-family:"Hiragino Maru Gothic ProN","Zen Maru Gothic","Yu Gothic UI","Yu Gothic",system-ui,sans-serif;color:var(--ink);}
+  button{font-family:inherit;border:none;cursor:pointer;}
+
+  .screen{position:fixed;inset:0;display:none;}
+  .screen.active{display:flex;}
+
+  /* ---------- 選択画面 ---------- */
+  #selectScreen{
+    flex-direction:column;align-items:center;justify-content:flex-start;gap:14px;
+    background:
+      radial-gradient(circle at 15% 20%, rgba(126,224,195,.35), transparent 40%),
+      radial-gradient(circle at 85% 80%, rgba(255,169,79,.30), transparent 45%),
+      var(--bg);
+    padding:max(20px, env(safe-area-inset-top)) 18px 24px;
+    overflow-y:auto;
+  }
+  .app-title{font-size:27px;font-weight:800;letter-spacing:.06em;margin-top:6px;}
+  .app-title .dot{color:var(--pink);}
+  .app-sub{font-size:13px;opacity:.72;margin-top:-6px;}
+  .char-cards{display:flex;gap:14px;width:100%;max-width:420px;justify-content:center;}
+  .char-card{
+    flex:1;max-width:190px;background:var(--card);border-radius:22px;padding:14px 12px 12px;
+    box-shadow:var(--shadow);display:flex;flex-direction:column;align-items:center;gap:7px;
+    border:3px solid transparent;transition:transform .15s ease,border-color .15s ease;
+  }
+  .char-card:active{transform:scale(.96);}
+  .char-card.selected{border-color:var(--pink);}
+  .char-card.selected .badge{opacity:1;transform:scale(1);}
+  .badge{font-size:11px;background:var(--pink);color:#fff;padding:3px 10px;border-radius:999px;opacity:0;transform:scale(.6);transition:all .15s ease;}
+  .preview{width:80px;height:80px;position:relative;animation:float 2.6s ease-in-out infinite;}
+  .char-card:nth-child(2) .preview{animation-delay:1.3s;}
+  @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+  .p-body{position:absolute;inset:8px;border-radius:50%;}
+  .p-a .p-body{background:var(--mint);}
+  .p-b .p-body{background:var(--orange);}
+  .p-ear{position:absolute;width:0;height:0;border-left:10px solid transparent;border-right:10px solid transparent;border-bottom:21px solid var(--orange);top:-3px;}
+  .p-ear.l{left:13px;transform:rotate(-18deg);}
+  .p-ear.r{right:13px;transform:rotate(18deg);}
+  .p-eye{position:absolute;width:8px;height:11px;background:#3a3550;border-radius:50%;top:34px;}
+  .p-eye.l{left:25px;} .p-eye.r{right:25px;}
+  .p-cheek{position:absolute;width:10px;height:7px;background:rgba(255,143,177,.75);border-radius:50%;top:46px;}
+  .p-cheek.l{left:16px;} .p-cheek.r{right:16px;}
+  .p-mouth{position:absolute;width:15px;height:7px;border-bottom:3px solid #3a3550;border-radius:0 0 16px 16px;left:32px;top:48px;}
+  .char-name{font-weight:800;font-size:15px;}
+  .char-desc{font-size:11px;opacity:.65;text-align:center;line-height:1.5;}
+
+  /* 2D画像アップロード（5スロット） */
+  .upload-card{
+    width:100%;max-width:420px;background:var(--card);border-radius:20px;padding:12px 14px;
+    box-shadow:var(--shadow);
+  }
+  .upload-title{font-size:13px;font-weight:800;display:flex;align-items:center;gap:6px;}
+  .upload-title small{font-weight:600;opacity:.55;font-size:10px;}
+  .upload-slots{display:flex;gap:7px;margin-top:9px;}
+  .upload-slot{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0;}
+  .upload-slot label{
+    width:100%;aspect-ratio:1;border-radius:12px;border:2px dashed rgba(58,53,80,.25);
+    display:flex;align-items:center;justify-content:center;
+    font-size:17px;background-size:cover;background-position:center;cursor:pointer;
+    transition:border-color .15s;overflow:hidden;
+  }
+  .upload-slot label.filled{border-style:solid;border-color:var(--pink);font-size:0;}
+  .upload-slot input{display:none;}
+  .upload-slot .slot-name{font-size:9px;font-weight:700;opacity:.7;white-space:nowrap;}
+
+  #startBtn{
+    margin-top:2px;width:min(78%,320px);padding:15px;border-radius:999px;
+    background:var(--ink);color:#fff;font-size:17px;font-weight:800;letter-spacing:.12em;
+    box-shadow:var(--shadow);transition:opacity .2s,transform .12s;flex-shrink:0;
+  }
+  #startBtn:active{transform:scale(.97);}
+  #startBtn:disabled{opacity:.35;}
+  .hint{font-size:11px;opacity:.55;padding-bottom:8px;}
+
+  /* ---------- AR画面 ---------- */
+  #arScreen{background:#000;}
+  #camBg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:linear-gradient(160deg,#5a6bd8,#8fd3f4);}
+  #arScene{position:absolute;inset:0;width:100%!important;height:100%!important;}
+  .a-canvas{background:transparent!important;}
+
+  .ui-top{position:absolute;top:calc(12px + env(safe-area-inset-top));left:12px;right:12px;display:flex;justify-content:space-between;align-items:center;z-index:20;pointer-events:none;}
+  #backBtn{
+    pointer-events:auto;display:flex;align-items:center;gap:6px;
+    background:rgba(255,255,255,.92);color:var(--ink);font-weight:800;font-size:14px;
+    padding:10px 16px;border-radius:999px;box-shadow:var(--shadow);
+  }
+  #moodChip{
+    background:rgba(58,53,80,.75);color:#fff;font-size:13px;font-weight:700;
+    padding:9px 14px;border-radius:999px;backdrop-filter:blur(4px);transition:background .35s ease;
+  }
+  .ui-bottom{
+    position:absolute;left:0;right:0;bottom:0;z-index:20;
+    padding:12px 18px calc(16px + env(safe-area-inset-bottom));
+    display:flex;flex-direction:column;gap:9px;align-items:center;
+    background:linear-gradient(to top,rgba(0,0,0,.45),transparent);
+  }
+  .mode-switch{
+    pointer-events:auto;display:flex;background:rgba(255,255,255,.25);border-radius:999px;padding:4px;
+    backdrop-filter:blur(6px);
+  }
+  .mode-switch button{
+    padding:8px 22px;border-radius:999px;font-size:13px;font-weight:800;color:#fff;
+    background:transparent;transition:background .2s,color .2s;
+  }
+  .mode-switch button.on{background:#fff;color:var(--ink);}
+  .slider-row{display:flex;align-items:center;gap:12px;width:min(100%,360px);color:#fff;}
+  .slider-row .s-label{font-size:12px;font-weight:700;opacity:.9;white-space:nowrap;}
+  #sizeSlider{flex:1;appearance:none;-webkit-appearance:none;height:6px;border-radius:3px;background:rgba(255,255,255,.4);outline:none;}
+  #sizeSlider::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.35);}
+  .ar-hint{color:rgba(255,255,255,.85);font-size:10px;text-align:center;line-height:1.6;text-shadow:0 1px 3px rgba(0,0,0,.5);}
+
+  #toast{
+    position:absolute;top:calc(64px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);
+    background:rgba(255,143,177,.95);color:#fff;font-weight:800;font-size:14px;
+    padding:10px 20px;border-radius:999px;z-index:30;opacity:0;transition:opacity .3s;pointer-events:none;
+    box-shadow:var(--shadow);white-space:nowrap;
+  }
+  #toast.show{opacity:1;}
+  #camError{
+    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:25;
+    background:rgba(255,255,255,.94);border-radius:18px;padding:16px 20px;font-size:13px;
+    max-width:80%;text-align:center;line-height:1.7;display:none;box-shadow:var(--shadow);
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ 初期画面：キャラクター選択 ============ -->
+<div id="selectScreen" class="screen active">
+  <h1 class="app-title">ARフレンド<span class="dot">.</span></h1>
+  <p class="app-sub">いっしょにあそぶ相棒をえらんでね</p>
+
+  <div class="char-cards">
+    <button class="char-card" data-char="A">
+      <span class="badge">えらんだ！</span>
+      <div class="preview p-a">
+        <div class="p-body"></div>
+        <div class="p-eye l"></div><div class="p-eye r"></div>
+        <div class="p-cheek l"></div><div class="p-cheek r"></div>
+        <div class="p-mouth"></div>
+      </div>
+      <div class="char-name">モチ</div>
+      <div class="char-desc">まるくてやわらかい。<br>のんびり屋さん。</div>
+    </button>
+
+    <button class="char-card" data-char="B">
+      <span class="badge">えらんだ！</span>
+      <div class="preview p-b">
+        <div class="p-ear l"></div><div class="p-ear r"></div>
+        <div class="p-body"></div>
+        <div class="p-eye l"></div><div class="p-eye r"></div>
+        <div class="p-cheek l"></div><div class="p-cheek r"></div>
+        <div class="p-mouth"></div>
+      </div>
+      <div class="char-name">コハク</div>
+      <div class="char-desc">みみがじまん。<br>ちょっといたずら好き。</div>
+    </button>
+  </div>
+
+  <!-- 2Dモード用 画像アップロード（5表情・任意） -->
+  <div class="upload-card">
+    <div class="upload-title">📷 2Dモード用の画像 <small>（任意・未設定でもOK）</small></div>
+    <div class="upload-slots">
+      <div class="upload-slot">
+        <label id="lbl-smile" for="file-smile">😊</label>
+        <input id="file-smile" type="file" accept="image/*" data-mood="smile">
+        <span class="slot-name">①通常</span>
+      </div>
+      <div class="upload-slot">
+        <label id="lbl-angry" for="file-angry">😡</label>
+        <input id="file-angry" type="file" accept="image/*" data-mood="angry">
+        <span class="slot-name">②おこ</span>
+      </div>
+      <div class="upload-slot">
+        <label id="lbl-joy" for="file-joy">🥰</label>
+        <input id="file-joy" type="file" accept="image/*" data-mood="joy">
+        <span class="slot-name">③大よろこび</span>
+      </div>
+      <div class="upload-slot">
+        <label id="lbl-shy" for="file-shy">😳</label>
+        <input id="file-shy" type="file" accept="image/*" data-mood="shy">
+        <span class="slot-name">④てれる</span>
+      </div>
+      <div class="upload-slot">
+        <label id="lbl-sleep" for="file-sleep">😴</label>
+        <input id="file-sleep" type="file" accept="image/*" data-mood="sleep">
+        <span class="slot-name">⑤ねむる</span>
+      </div>
+    </div>
+  </div>
+
+  <button id="startBtn" disabled>スタート</button>
+  <p class="hint">※ カメラの使用を許可してください</p>
+</div>
+
+<!-- ============ AR画面 ============ -->
+<div id="arScreen" class="screen">
+  <video id="camBg" autoplay playsinline muted></video>
+
+  <a-scene id="arScene" embedded
+           renderer="alpha: true; antialias: true; colorManagement: true"
+           vr-mode-ui="enabled: false"
+           device-orientation-permission-ui="enabled: false"
+           loading-screen="enabled: false">
+    <a-entity light="type: ambient; intensity: 0.9"></a-entity>
+    <a-entity light="type: directional; intensity: 0.7" position="1 2 1"></a-entity>
+
+    <a-camera look-controls="enabled: false" wasd-controls="enabled: false" fov="60">
+
+      <!-- おやつ置き場（カメラ空間） -->
+      <a-entity id="snackLayer"></a-entity>
+
+      <!-- 画面空間固定：カメラの子要素なので常に視界内。charRootが歩き回る -->
+      <a-entity id="charRoot" position="0 -0.45 -3.4">
+        <a-entity id="charScale">
+          <a-entity id="bouncer">
+            <a-entity id="shaker">
+
+              <!-- ================= 3Dモード ================= -->
+              <a-entity id="char3D">
+                <a-entity id="primChar">
+                  <a-cylinder id="bodyPart" radius="0.42" height="0.55" position="0 -0.35 0"
+                              material="color: #7ee0c3; roughness: 0.9"></a-cylinder>
+                  <a-sphere id="bodyBottom" radius="0.42" position="0 -0.6 0" scale="1 0.55 1"
+                            material="color: #7ee0c3; roughness: 0.9"></a-sphere>
+                  <a-sphere id="headPart" radius="0.52" position="0 0.28 0"
+                            material="color: #7ee0c3; roughness: 0.9"></a-sphere>
+                  <a-cone id="earL" radius-bottom="0.14" height="0.34" position="-0.3 0.75 0" rotation="0 0 20"
+                          material="color: #ffa94f" visible="false"></a-cone>
+                  <a-cone id="earR" radius-bottom="0.14" height="0.34" position="0.3 0.75 0" rotation="0 0 -20"
+                          material="color: #ffa94f" visible="false"></a-cone>
+                  <a-sphere id="eyeL" radius="0.06" position="-0.18 0.34 0.46" scale="1 1.35 0.5" color="#3a3550"></a-sphere>
+                  <a-sphere id="eyeR" radius="0.06" position="0.18 0.34 0.46" scale="1 1.35 0.5" color="#3a3550"></a-sphere>
+                  <a-box id="browL" width="0.16" height="0.03" depth="0.02" position="-0.18 0.46 0.48" rotation="0 0 -25"
+                         color="#3a3550" scale="0.001 0.001 0.001"></a-box>
+                  <a-box id="browR" width="0.16" height="0.03" depth="0.02" position="0.18 0.46 0.48" rotation="0 0 25"
+                         color="#3a3550" scale="0.001 0.001 0.001"></a-box>
+                  <a-circle id="cheekL" radius="0.06" position="-0.3 0.22 0.44" rotation="0 -20 0"
+                            material="color: #ff8fb1; opacity: 0.85; side: double"></a-circle>
+                  <a-circle id="cheekR" radius="0.06" position="0.3 0.22 0.44" rotation="0 20 0"
+                            material="color: #ff8fb1; opacity: 0.85; side: double"></a-circle>
+                  <a-torus id="mouth" radius="0.09" radius-tubular="0.014" arc="180" segments-tubular="16"
+                           position="0 0.16 0.48" rotation="0 0 180" color="#3a3550"></a-torus>
+                </a-entity>
+                <!-- 3Dモデル用プレースホルダー（URL設定時に自動表示） -->
+                <a-entity id="gltfChar" visible="false"></a-entity>
+              </a-entity>
+
+              <!-- ================= 2Dモード（アクスタ風プレート） ================= -->
+              <a-entity id="char2D" visible="false">
+                <a-image id="plateA" width="1.35" height="1.35" position="0 0.1 0.002"
+                         material="transparent: true; opacity: 1; side: double"></a-image>
+                <a-image id="plateB" width="1.35" height="1.35" position="0 0.1 0.001"
+                         material="transparent: true; opacity: 0; side: double"></a-image>
+                <a-box width="0.7" height="0.06" depth="0.28" position="0 -0.58 0"
+                       material="color: #ffffff; opacity: 0.45; transparent: true; metalness: 0.1; roughness: 0.1"></a-box>
+              </a-entity>
+
+              <!-- 頭部タッチ判定用アンカー（不可視・両モード共通） -->
+              <a-entity id="headAnchor" position="0 0.45 0"></a-entity>
+
+            </a-entity>
+          </a-entity>
+          <!-- ハート＆Zzzパーティクル置き場 -->
+          <a-entity id="heartLayer" position="0 0.6 0"></a-entity>
+        </a-entity>
+      </a-entity>
+    </a-camera>
+  </a-scene>
+
+  <div class="ui-top">
+    <button id="backBtn">◀ 戻る</button>
+    <div id="moodChip">😊 ごきげん</div>
+  </div>
+
+  <div id="toast"></div>
+  <div id="camError">カメラを起動できませんでした。<br>ブラウザの設定でカメラを許可してください。<br>（背景なしでも操作は試せます）</div>
+
+  <div class="ui-bottom">
+    <div class="mode-switch">
+      <button id="btn3D" class="on">3D表示</button>
+      <button id="btn2D">2D画像</button>
+    </div>
+    <div class="slider-row">
+      <span class="s-label">小</span>
+      <input id="sizeSlider" type="range" min="0.4" max="2.5" step="0.05" value="1">
+      <span class="s-label">大</span>
+    </div>
+    <p class="ar-hint">なにもない所をタップ → おやつ設置🍓 ／ からだタップ → 気分チェンジ ／ あたまを左右になでる → 大よろこび♥<br>ピンチ or スライダーでサイズ変更。20秒さわらないと眠っちゃうよ…</p>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+ *  設定：3Dモデル（.glb / .gltf）を使う場合は下記URLを設定してください。
+ *  空文字("")の場合は、基本図形で作った簡易キャラクターが表示されます。
+ * ===================================================================== */
+const MODEL_URLS = {
+  A: "",   // 例: "https://example.com/models/chara_a.glb"
+  B: ""    // 例: "https://example.com/models/chara_b.glb"
+};
+
+/* ---------- キャラクター定義・定数 ---------- */
+const CHARACTERS = {
+  A: { name: "モチ",   baseColor: "#7ee0c3", hasEars: false },
+  B: { name: "コハク", baseColor: "#ffa94f", hasEars: true  }
+};
+const ANGRY_COLOR   = "#e85d5d";
+const CHEEK_COLOR   = "#ff8fb1";
+const CHEEK_SHY     = "#ff4d88";
+const TRANSITION_MS = 350;      // 表情遷移（約0.3〜0.4秒）
+const WALK_AREA = { xMin: -0.8, xMax: 0.8, yMin: -0.6, yMax: -0.2 };  // 巡回範囲
+const CHAR_Z    = -3.4;
+const SLEEP_IDLE_MS = 20000;    // 無操作→ねむるまでの時間
+
+/* ---------- DOM ---------- */
+const $ = (id) => document.getElementById(id);
+const selectScreen = $("selectScreen"), arScreen = $("arScreen");
+const startBtn = $("startBtn"), backBtn = $("backBtn");
+const camBg = $("camBg"), camError = $("camError");
+const moodChip = $("moodChip"), toast = $("toast");
+const sizeSlider = $("sizeSlider");
+const sceneEl = $("arScene");
+const THREE_ = AFRAME.THREE;
+
+let selectedChar = null;
+let camStream = null;
+let is2D = false;
+let arActive = false;
+
+/* =====================================================================
+ *  0. 汎用トゥイーン（滑らかな数値補間エンジン）
+ * ===================================================================== */
+const tweens = new Map();
+function easeInOut(t){ return t < .5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2)/2; }
+function tween(tag, dur, onUpdate) {
+  tweens.set(tag, { start: performance.now(), dur, onUpdate });
+}
+function updateTweens(now) {
+  tweens.forEach((tw, tag) => {
+    const k = Math.min(1, (now - tw.start) / tw.dur);
+    tw.onUpdate(easeInOut(k));
+    if (k >= 1) tweens.delete(tag);
+  });
+}
+function getMat(el) {
+  const mesh = el.getObject3D("mesh");
+  return mesh ? mesh.material : null;
+}
+
+/* =====================================================================
+ *  1. 2Dモード用テクスチャ（5表情：アップロード＋デフォルト自動生成）
+ * ===================================================================== */
+const uploads  = { smile: null, angry: null, joy: null, shy: null, sleep: null };
+let   textures = { smile: null, angry: null, joy: null, shy: null, sleep: null };
+
+document.querySelectorAll('input[type="file"][data-mood]').forEach(input => {
+  input.addEventListener("change", () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const mood = input.dataset.mood;
+      uploads[mood] = reader.result;
+      const lbl = $("lbl-" + mood);
+      lbl.classList.add("filled");
+      lbl.style.backgroundImage = `url(${reader.result})`;
+    };
+    reader.readAsDataURL(file);
+  });
+});
+
+/* デフォルトのダミー表情をcanvasで生成 */
+function makeFaceTexture(mood, def) {
+  const c = document.createElement("canvas");
+  c.width = c.height = 512;
+  const ctx = c.getContext("2d");
+  const body = (mood === "angry") ? ANGRY_COLOR : def.baseColor;
+
+  if (def.hasEars) {
+    ctx.fillStyle = body;
+    [[150, -22], [362, 22]].forEach(([x, rot]) => {
+      ctx.save(); ctx.translate(x, 120); ctx.rotate(rot * Math.PI / 180);
+      ctx.beginPath(); ctx.moveTo(-45, 40); ctx.lineTo(45, 40); ctx.lineTo(0, -85);
+      ctx.closePath(); ctx.fill(); ctx.restore();
+    });
+  }
+  ctx.fillStyle = body;
+  ctx.beginPath(); ctx.arc(256, 276, 196, 0, Math.PI * 2); ctx.fill();
+
+  // ほっぺ（てれ時は大きく濃く）
+  ctx.fillStyle = (mood === "shy") ? "rgba(255,77,136,.9)" : "rgba(255,143,177,.8)";
+  const cw = (mood === "shy") ? 38 : 26, ch = (mood === "shy") ? 24 : 17;
+  ctx.beginPath(); ctx.ellipse(150, 320, cw, ch, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(362, 320, cw, ch, 0, 0, Math.PI * 2); ctx.fill();
+
+  ctx.strokeStyle = ctx.fillStyle = "#3a3550";
+  ctx.lineWidth = 14; ctx.lineCap = "round";
+
+  if (mood === "smile") {
+    ctx.beginPath(); ctx.ellipse(186, 258, 15, 24, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(326, 258, 15, 24, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(256, 320, 34, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+  } else if (mood === "angry") {
+    ctx.beginPath(); ctx.moveTo(150, 202); ctx.lineTo(216, 226); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(362, 202); ctx.lineTo(296, 226); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(186, 262, 14, 20, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(326, 262, 14, 20, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(256, 372, 32, 1.15 * Math.PI, 1.85 * Math.PI); ctx.stroke();
+  } else if (mood === "shy") {
+    ctx.beginPath(); ctx.ellipse(186, 258, 14, 21, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(326, 258, 14, 21, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(256, 330, 16, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();  // ちいさな口
+    ctx.fillStyle = "#ff5d8f"; ctx.font = "54px sans-serif";
+    ctx.fillText("♡", 404, 190);
+  } else if (mood === "sleep") {
+    ctx.beginPath(); ctx.arc(186, 250, 22, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();  // とじた目
+    ctx.beginPath(); ctx.arc(326, 250, 22, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(256, 330, 12, 9, 0, 0, Math.PI * 2); ctx.stroke();        // ちいさな口
+    ctx.fillStyle = "#6f86d6";
+    ctx.font = "bold 74px sans-serif"; ctx.fillText("Z", 392, 120);
+    ctx.font = "bold 48px sans-serif"; ctx.fillText("z", 448, 168);
+  } else { // joy（eating / mischief 共用）
+    ctx.beginPath(); ctx.arc(186, 268, 22, 1.1 * Math.PI, 1.9 * Math.PI); ctx.stroke();
+    ctx.beginPath(); ctx.arc(326, 268, 22, 1.1 * Math.PI, 1.9 * Math.PI); ctx.stroke();
+    ctx.beginPath(); ctx.arc(256, 312, 44, 0.1 * Math.PI, 0.9 * Math.PI); ctx.stroke();
+    ctx.fillStyle = "#ff5d8f"; ctx.font = "64px sans-serif";
+    ctx.fillText("♥", 60, 130); ctx.fillText("♥", 400, 150);
+  }
+  return c.toDataURL("image/png");
+}
+
+function buildTextures() {
+  const def = CHARACTERS[selectedChar] || CHARACTERS.A;
+  ["smile", "angry", "joy", "shy", "sleep"].forEach(m => {
+    textures[m] = uploads[m] || makeFaceTexture(m, def);
+  });
+}
+function texForMood(m) {
+  if (m === "angry") return textures.angry;
+  if (m === "joy" || m === "mischief" || m === "eating") return textures.joy;
+  if (m === "shy") return textures.shy;
+  if (m === "sleep") return textures.sleep;
+  return textures.smile;
+}
+
+/* =====================================================================
+ *  2. キャラクター選択 → スタート
+ * ===================================================================== */
+document.querySelectorAll(".char-card").forEach(card => {
+  card.addEventListener("click", () => {
+    document.querySelectorAll(".char-card").forEach(c => c.classList.remove("selected"));
+    card.classList.add("selected");
+    selectedChar = card.dataset.char;
+    startBtn.disabled = false;
+  });
+});
+
+startBtn.addEventListener("click", async () => {
+  if (!selectedChar) return;
+  applyCharacter(selectedChar);
+  buildTextures();
+  initPlates();
+  selectScreen.classList.remove("active");
+  arScreen.classList.add("active");
+  window.dispatchEvent(new Event("resize"));
+  arActive = true;
+  lastInteraction = performance.now();
+
+  camError.style.display = "none";
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" }, audio: false
+    });
+    camBg.srcObject = camStream;
+    await camBg.play();
+  } catch (e) {
+    camError.style.display = "block";
+    setTimeout(() => camError.style.display = "none", 4000);
+  }
+  setMood("smile", true);
+  scheduleRandomMood();
+  showToast(CHARACTERS[selectedChar].name + " があらわれた！");
+});
+
+backBtn.addEventListener("click", () => {
+  if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+  camBg.srcObject = null;
+  clearTimeout(moodTimer);
+  removeSnack();
+  arActive = false;
+  arScreen.classList.remove("active");
+  selectScreen.classList.add("active");
+});
+
+/* =====================================================================
+ *  3. キャラクター見た目の適用（基本図形 or GLTF）
+ * ===================================================================== */
+function applyCharacter(key) {
+  const def = CHARACTERS[key];
+  const url = MODEL_URLS[key];
+  const prim = $("primChar"), gltf = $("gltfChar");
+
+  if (url) {
+    prim.setAttribute("visible", "false");
+    gltf.setAttribute("visible", "true");
+    gltf.setAttribute("gltf-model", "url(" + url + ")");
+  } else {
+    gltf.setAttribute("visible", "false");
+    gltf.removeAttribute("gltf-model");
+    prim.setAttribute("visible", "true");
+    ["bodyPart", "bodyBottom", "headPart"].forEach(id =>
+      $(id).setAttribute("material", "color", def.baseColor));
+    $("earL").setAttribute("visible", def.hasEars);
+    $("earR").setAttribute("visible", def.hasEars);
+  }
+}
+
+/* =====================================================================
+ *  4. 3D ⇄ 2D モード切り替え（感情・サイズ・判定はそのまま維持）
+ * ===================================================================== */
+const btn3D = $("btn3D"), btn2D = $("btn2D");
+btn3D.addEventListener("click", () => { noteInteraction(); switchMode(false); });
+btn2D.addEventListener("click", () => { noteInteraction(); switchMode(true); });
+
+function switchMode(to2D) {
+  if (is2D === to2D) return;
+  is2D = to2D;
+  btn3D.classList.toggle("on", !to2D);
+  btn2D.classList.toggle("on", to2D);
+  $("char3D").setAttribute("visible", !to2D);
+  $("char2D").setAttribute("visible", to2D);
+  if (to2D) setPlateImmediate(texForMood(mood));
+  showToast(to2D ? "2D画像モード" : "3Dモード");
+}
+
+/* ---------- 2Dプレート（クロスフェード制御） ---------- */
+let frontPlate, backPlate;
+function initPlates() {
+  frontPlate = $("plateA");
+  backPlate  = $("plateB");
+  setPlateImmediate(texForMood("smile"));
+}
+function setPlateOpacity(el, v) {
+  const m = getMat(el);
+  if (m) { m.opacity = v; m.transparent = true; }
+  else el.setAttribute("material", "opacity", v);
+}
+function setPlateImmediate(src) {
+  tweens.delete("fade");
+  frontPlate.setAttribute("src", src);
+  frontPlate.dataset.src = src;
+  setPlateOpacity(frontPlate, 1);
+  setPlateOpacity(backPlate, 0);
+}
+function crossfadeTo(src) {
+  if (!frontPlate || frontPlate.dataset.src === src) return;
+  backPlate.setAttribute("src", src);
+  backPlate.dataset.src = src;
+  backPlate.object3D.position.z = 0.002;
+  frontPlate.object3D.position.z = 0.001;
+  const fadeOut = frontPlate, fadeIn = backPlate;
+  tween("fade", 300, (k) => {
+    setPlateOpacity(fadeOut, 1 - k);
+    setPlateOpacity(fadeIn, k);
+  });
+  [frontPlate, backPlate] = [backPlate, frontPlate];
+}
+
+/* =====================================================================
+ *  5. 感情ステート（smile / angry / mischief / joy / shy / sleep / eating）
+ * ===================================================================== */
+const MOODS = {
+  smile:    { label: "😊 ごきげん",       chip: "rgba(58,53,80,.75)"   },
+  angry:    { label: "😡 おこってる！",   chip: "rgba(232,93,93,.85)"  },
+  mischief: { label: "😜 いたずらモード", chip: "rgba(255,169,79,.85)" },
+  joy:      { label: "🥰 大よろこび！",   chip: "rgba(255,143,177,.9)" },
+  shy:      { label: "😳 てれてる…",      chip: "rgba(255,77,136,.85)" },
+  sleep:    { label: "😴 すやすや…",      chip: "rgba(111,134,214,.85)"},
+  eating:   { label: "😋 もぐもぐ",       chip: "rgba(126,224,195,.9)" }
+};
+let mood = "smile";
+let moodTimer = null;
+let joyUntil = 0;
+let lastInteraction = performance.now();
+
+function noteInteraction() { lastInteraction = performance.now(); }
+
+/* --- 3Dパーツの遷移ターゲット定義 --- */
+function moodTargets3D(next) {
+  const base = (CHARACTERS[selectedChar] || CHARACTERS.A).baseColor;
+  const t = {
+    bodyColor: base, brow: 0.001, mouthRotZ: 180, mouthScl: 1,
+    eyeSclX: 1, eyeSclY: 1.35, cheekColor: CHEEK_COLOR, cheekScl: 1
+  };
+  switch (next) {
+    case "angry":
+      t.bodyColor = ANGRY_COLOR; t.brow = 1; t.mouthRotZ = 0; t.mouthScl = 0.8; break;
+    case "joy":
+      t.mouthScl = 1.6; t.eyeSclX = 1.4; t.eyeSclY = 0.35; break;
+    case "eating":
+      t.mouthScl = 1.8; t.eyeSclX = 1.4; t.eyeSclY = 0.35; break;
+    case "shy":
+      t.cheekColor = CHEEK_SHY; t.cheekScl = 1.5; t.mouthScl = 0.6; t.eyeSclY = 1.1; break;
+    case "sleep":
+      t.eyeSclX = 1.25; t.eyeSclY = 0.08; t.mouthScl = 0.55; break;
+  }
+  return t;
+}
+
+function setMood(next, instant = false) {
+  const prev = mood;
+  mood = next;
+  moodChip.textContent = MOODS[next].label;
+  moodChip.style.background = MOODS[next].chip;
+  if (prev === next && !instant) return;
+
+  /* --- 2D：クロスフェード --- */
+  if (frontPlate) {
+    if (instant) setPlateImmediate(texForMood(next));
+    else crossfadeTo(texForMood(next));
+  }
+
+  /* --- 3D（簡易キャラ）：滑らかに補間 --- */
+  if (MODEL_URLS[selectedChar]) return;
+  const tgt = moodTargets3D(next);
+
+  const mats = ["bodyPart", "bodyBottom", "headPart"].map(id => getMat($(id))).filter(Boolean);
+  const fromCols = mats.map(m => m.color.clone());
+  const toCol = new THREE_.Color(tgt.bodyColor);
+  const cheekMats = ["cheekL", "cheekR"].map(id => getMat($(id))).filter(Boolean);
+  const fromCheekCols = cheekMats.map(m => m.color.clone());
+  const toCheekCol = new THREE_.Color(tgt.cheekColor);
+
+  const mouthO = $("mouth").object3D, eyeLO = $("eyeL").object3D, eyeRO = $("eyeR").object3D;
+  const browLO = $("browL").object3D, browRO = $("browR").object3D;
+  const cheekLO = $("cheekL").object3D, cheekRO = $("cheekR").object3D;
+  const from = {
+    mouthRot: mouthO.rotation.z, mouthScl: mouthO.scale.x,
+    eyeX: eyeLO.scale.x, eyeY: eyeLO.scale.y,
+    brow: browLO.scale.x, cheek: cheekLO.scale.x
+  };
+  const toMouthRot = tgt.mouthRotZ * Math.PI / 180;
+  const dur = instant ? 1 : TRANSITION_MS;
+
+  tween("mood3d", dur, (k) => {
+    mats.forEach((m, i) => m.color.copy(fromCols[i]).lerp(toCol, k));
+    cheekMats.forEach((m, i) => m.color.copy(fromCheekCols[i]).lerp(toCheekCol, k));
+    mouthO.rotation.z = from.mouthRot + (toMouthRot - from.mouthRot) * k;
+    const ms = from.mouthScl + (tgt.mouthScl - from.mouthScl) * k;
+    mouthO.scale.set(ms, ms, 1);
+    const ex = from.eyeX + (tgt.eyeSclX - from.eyeX) * k;
+    const ey = from.eyeY + (tgt.eyeSclY - from.eyeY) * k;
+    eyeLO.scale.set(ex, ey, 0.5); eyeRO.scale.set(ex, ey, 0.5);
+    const b = from.brow + (tgt.brow - from.brow) * k;
+    browLO.scale.set(b, b, b); browRO.scale.set(b, b, b);
+    const ck = from.cheek + (tgt.cheekScl - from.cheek) * k;
+    cheekLO.scale.set(ck, ck, 1); cheekRO.scale.set(ck, ck, 1);
+  });
+}
+
+/* 時間経過によるランダム気分変化（てれる含む） */
+function scheduleRandomMood() {
+  clearTimeout(moodTimer);
+  moodTimer = setTimeout(() => {
+    if (!["joy", "sleep", "eating"].includes(mood) && behavior !== "toSnack") {
+      const pool = ["smile", "smile", "smile", "angry", "mischief", "shy", "shy"];
+      const next = pool[Math.floor(Math.random() * pool.length)];
+      if (next !== mood) setMood(next);
+    }
+    scheduleRandomMood();
+  }, 8000 + Math.random() * 6000);
+}
+
+function cycleMood() {
+  const order = ["smile", "angry", "mischief", "shy"];
+  const idx = order.indexOf(mood);
+  const next = order[(idx + 1) % order.length];
+  setMood(next);
+}
+
+function triggerJoy() {
+  joyUntil = performance.now() + 3000;
+  if (mood !== "joy") {
+    setMood("joy");
+    showToast("なでなで♥ うれしい！");
+  }
+  burstHearts();
+}
+
+function wakeUp() {
+  if (mood === "sleep") {
+    setMood("smile");
+    showToast("おはよう！");
+  }
+}
+
+/* =====================================================================
+ *  6. おやつ（タップした位置に出現 → 食べに行く）
+ * ===================================================================== */
+const snackLayer = $("snackLayer");
+let snackEl = null;
+let snackPos = null;          // カメラ空間座標 {x,y}
+let behavior = "wander";      // wander | toSnack | eating
+let eatUntil = 0;
+
+/* 画面ピクセル → カメラ空間（z = CHAR_Z 平面）へ逆投影 */
+function screenToCamPlane(px, py) {
+  const cam = sceneEl.camera;
+  if (!cam) return null;
+  const ndcX = (px / window.innerWidth) * 2 - 1;
+  const ndcY = -((py / window.innerHeight) * 2 - 1);
+  const tanV = Math.tan((cam.fov * Math.PI / 180) / 2);
+  const dist = Math.abs(CHAR_Z);
+  return {
+    x: ndcX * tanV * cam.aspect * dist,
+    y: ndcY * tanV * dist
+  };
+}
+
+function spawnSnack(px, py) {
+  const p = screenToCamPlane(px, py);
+  if (!p) return;
+  const x = Math.max(-1.05, Math.min(1.05, p.x));
+  const y = Math.max(-0.8,  Math.min(0.15, p.y));
+  removeSnack();
+
+  // イチゴ（赤い実＋緑のヘタ）
+  snackEl = document.createElement("a-entity");
+  snackEl.setAttribute("position", `${x} ${y} ${CHAR_Z}`);
+  snackEl.innerHTML = `
+    <a-sphere radius="0.09" scale="1 1.15 1" material="color: #ff4d5e; roughness: 0.6"></a-sphere>
+    <a-cone radius-bottom="0.06" height="0.07" position="0 0.11 0" material="color: #4fc46f"></a-cone>`;
+  snackLayer.appendChild(snackEl);
+  snackPos = { x, y };
+
+  wakeUp();
+  if (mood !== "joy") setMood("smile");
+  behavior = "toSnack";
+  showToast("🍓 おやつ発見！");
+}
+
+function removeSnack() {
+  if (snackEl && snackEl.parentNode) snackEl.parentNode.removeChild(snackEl);
+  snackEl = null;
+  snackPos = null;
+}
+
+function startEating(now) {
+  behavior = "eating";
+  eatUntil = now + 2000;
+  setMood("eating");
+  if (snackEl) {
+    const o = snackEl.object3D;
+    tween("snackEat", 1900, (k) => o.scale.setScalar(Math.max(0.001, 1 - k)));
+  }
+}
+
+/* =====================================================================
+ *  7. モーション＆AI（毎フレーム更新：巡回・おやつ・呼吸・トゥイーン）
+ * ===================================================================== */
+const bouncer = $("bouncer"), shaker = $("shaker");
+const charRoot = $("charRoot");
+
+let walkTarget = null;
+let walkWaitUntil = 0;
+let walkTilt = 0;
+let lastT = 0;
+let nextZzz = 0;
+
+function pickWalkTarget() {
+  walkTarget = {
+    x: WALK_AREA.xMin + Math.random() * (WALK_AREA.xMax - WALK_AREA.xMin),
+    y: WALK_AREA.yMin + Math.random() * (WALK_AREA.yMax - WALK_AREA.yMin)
+  };
+}
+
+/* charRoot を target に向けて移動。到達で true */
+function moveToward(target, speed, dt) {
+  const pos = charRoot.object3D.position;
+  const dx = target.x - pos.x, dy = target.y - pos.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 0.05) return { arrived: true, dirX: 0 };
+  const step = Math.min(dist, speed * dt);
+  pos.x += dx / dist * step;
+  pos.y += dy / dist * step;
+  return { arrived: false, dirX: dx / dist };
+}
+
+function animate(t) {
+  updateTweens(t);
+  const dt = Math.min(0.05, (t - lastT) / 1000 || 0.016);
+  lastT = t;
+  const s = t / 1000;
+  let by = 0, sx = 0, sy = 0, rz = 0;
+  let breathY = 1;
+  let tiltTarget = 0;
+  let movingBob = false;
+
+  if (arActive) {
+    /* --- 大よろこび終了 --- */
+    if (mood === "joy" && t > joyUntil) setMood("smile");
+
+    /* --- ねむる（無操作20秒） --- */
+    if (mood !== "sleep" && behavior === "wander" &&
+        !["joy", "eating"].includes(mood) &&
+        t - lastInteraction > SLEEP_IDLE_MS) {
+      setMood("sleep");
+      showToast("……zzz");
+    }
+
+    /* --- 行動：おやつへ移動／食べる／巡回 --- */
+    if (behavior === "toSnack" && snackPos) {
+      const tgt = {
+        x: Math.max(WALK_AREA.xMin - 0.15, Math.min(WALK_AREA.xMax + 0.15, snackPos.x)),
+        y: Math.max(WALK_AREA.yMin,        Math.min(WALK_AREA.yMax + 0.1,  snackPos.y))
+      };
+      const r = moveToward(tgt, 0.65, dt);
+      if (r.arrived) startEating(t);
+      else { tiltTarget = -r.dirX * 10; movingBob = true; }
+    } else if (behavior === "eating") {
+      if (t > eatUntil) {
+        removeSnack();
+        behavior = "wander";
+        setMood("smile");
+        burstHearts();
+        showToast("ごちそうさま！");
+      }
+    } else if (behavior === "wander" && mood === "smile") {
+      /* --- 自動巡回：範囲内をトコトコ歩き回る --- */
+      if (!walkTarget) {
+        if (t > walkWaitUntil) pickWalkTarget();
+      } else {
+        const r = moveToward(walkTarget, 0.32, dt);
+        if (r.arrived) {
+          walkTarget = null;
+          walkWaitUntil = t + 900 + Math.random() * 2600;   // ひとやすみ
+        } else {
+          tiltTarget = -r.dirX * 9;   // 進行方向へ体を傾ける
+          movingBob = true;
+        }
+      }
+    }
+  }
+
+  /* --- 歩行の傾きをなめらかに --- */
+  walkTilt += (tiltTarget - walkTilt) * Math.min(1, dt * 8);
+
+  /* --- 感情ごとのモーション --- */
+  switch (mood) {
+    case "smile":
+      by = movingBob ? Math.abs(Math.sin(s * 8)) * 0.055    // トコトコ歩き
+                     : Math.abs(Math.sin(s * 3)) * 0.07;    // その場バウンド
+      break;
+    case "angry":
+      sx = (Math.random() - 0.5) * 0.045;
+      sy = (Math.random() - 0.5) * 0.02;
+      break;
+    case "mischief":
+      sx = Math.sin(s * 9) * 0.3;
+      rz = Math.sin(s * 9) * 10;
+      break;
+    case "joy":
+      by = Math.abs(Math.sin(s * 6)) * 0.28;
+      rz = Math.sin(s * 12) * 8;
+      break;
+    case "shy":       // モジモジ（カメラをじっと見つめたまま小さく左右へ）
+      sx = Math.sin(s * 4) * 0.05;
+      rz = Math.sin(s * 2) * 3;
+      break;
+    case "sleep":     // 座り込んでゆっくり呼吸
+      by = -0.14;
+      breathY = 1 + Math.sin(s * 1.4) * 0.035;
+      if (t > nextZzz) { spawnZzz(); nextZzz = t + 1600; }
+      break;
+    case "eating":    // バクバク上下に動く
+      by = Math.abs(Math.sin(s * 11)) * 0.09;
+      rz = Math.sin(s * 22) * 3;
+      break;
+  }
+
+  bouncer.object3D.position.y = by;
+  bouncer.object3D.scale.set(1, breathY, 1);
+  shaker.object3D.position.set(sx, sy, 0);
+  shaker.object3D.rotation.z = (rz + walkTilt) * Math.PI / 180;
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+
+/* =====================================================================
+ *  8. サイズ調整（スライダー＋ピンチ）※3D/2D共通
+ * ===================================================================== */
+const charScale = $("charScale");
+let scale = 1;
+function applyScale(v) {
+  scale = Math.min(2.5, Math.max(0.4, v));
+  charScale.object3D.scale.set(scale, scale, scale);
+  sizeSlider.value = scale;
+}
+sizeSlider.addEventListener("input", () => {
+  noteInteraction(); wakeUp();
+  applyScale(parseFloat(sizeSlider.value));
+});
+
+/* =====================================================================
+ *  9. タッチ操作：なでる / タップ（気分・おやつ）/ ピンチ / 起こす
+ * ===================================================================== */
+const headAnchor = $("headAnchor");
+const _v = new THREE_.Vector3();
+
+function toScreen(obj3D) {
+  const cam = sceneEl.camera;
+  if (!cam) return null;
+  obj3D.getWorldPosition(_v);
+  _v.project(cam);
+  return {
+    x: (_v.x + 1) / 2 * window.innerWidth,
+    y: (1 - _v.y) / 2 * window.innerHeight
+  };
+}
+
+let touching = false, petLastX = 0, petLastDir = 0, petTurns = 0, petDist = 0;
+let onHead = false, moved = 0, startXY = null;
+let pinchDist0 = 0, pinchScale0 = 1, pinching = false;
+let lastJoyAt = 0;
+let wokeThisTouch = false;
+
+const touchLayer = arScreen;
+
+touchLayer.addEventListener("touchstart", (e) => {
+  noteInteraction();
+  if (e.target.closest("button") || e.target === sizeSlider) return;
+
+  wokeThisTouch = (mood === "sleep");
+  if (wokeThisTouch) wakeUp();     // 画面タップで目を覚ます
+
+  if (e.touches.length === 2) {
+    pinching = true;
+    pinchDist0 = touchDistance(e.touches);
+    pinchScale0 = scale;
+    return;
+  }
+  const t = e.touches[0];
+  const head = toScreen(headAnchor.object3D);
+  touching = true; moved = 0;
+  startXY = { x: t.clientX, y: t.clientY };
+  petLastX = t.clientX; petLastDir = 0; petTurns = 0; petDist = 0;
+  onHead = head && Math.hypot(t.clientX - head.x, t.clientY - head.y) < headRadiusPx();
+}, { passive: true });
+
+touchLayer.addEventListener("touchmove", (e) => {
+  if (e.target === sizeSlider) return;
+  e.preventDefault();
+  noteInteraction();
+
+  if (pinching && e.touches.length === 2) {
+    const d = touchDistance(e.touches);
+    applyScale(pinchScale0 * (d / pinchDist0));
+    return;
+  }
+  if (!touching) return;
+  const t = e.touches[0];
+  moved += Math.hypot(t.clientX - startXY.x, t.clientY - startXY.y);
+
+  /* 撫でる：頭の上で指を左右に往復させる動きを検知 */
+  if (onHead) {
+    const dx = t.clientX - petLastX;
+    if (Math.abs(dx) > 6) {
+      const dir = Math.sign(dx);
+      if (petLastDir !== 0 && dir !== petLastDir) petTurns++;
+      petLastDir = dir;
+      petDist += Math.abs(dx);
+      petLastX = t.clientX;
+      const now = performance.now();
+      if ((petTurns >= 2 || (petTurns >= 1 && petDist > 130)) && now - lastJoyAt > 1200) {
+        lastJoyAt = now;
+        triggerJoy();
+        petTurns = 0; petDist = 0;
+      }
+    }
+  }
+}, { passive: false });
+
+touchLayer.addEventListener("touchend", (e) => {
+  if (e.touches.length < 2) pinching = false;
+  if (!touching) return;
+  touching = false;
+  if (wokeThisTouch) return;   // 起こしただけのタップは他の操作にしない
+
+  /* タップ（ほぼ動かず離した） */
+  if (moved < 12 && startXY) {
+    const body = toScreen(charRoot.object3D);
+    const hitBody = body && Math.hypot(startXY.x - body.x, startXY.y - body.y) < bodyRadiusPx();
+    if (hitBody) {
+      if (onHead) triggerJoy();
+      else if (!["joy", "eating"].includes(mood) && behavior !== "toSnack") cycleMood();
+    } else {
+      spawnSnack(startXY.x, startXY.y);   // 何もない所 → おやつ設置
+    }
+  }
+});
+
+function touchDistance(touches) {
+  return Math.hypot(
+    touches[0].clientX - touches[1].clientX,
+    touches[0].clientY - touches[1].clientY
+  );
+}
+function headRadiusPx() { return Math.min(window.innerWidth, window.innerHeight) * 0.14 * scale + 30; }
+function bodyRadiusPx() { return Math.min(window.innerWidth, window.innerHeight) * 0.24 * scale + 40; }
+
+/* =====================================================================
+ *  10. パーティクル（ハート＆Zzz）
+ * ===================================================================== */
+const heartLayer = $("heartLayer");
+function burstHearts() {
+  for (let i = 0; i < 6; i++) setTimeout(spawnHeart, i * 120);
+}
+function spawnParticle(char, color, width) {
+  const h = document.createElement("a-text");
+  const x = (Math.random() - 0.5) * 0.9;
+  const z = 0.3 + Math.random() * 0.2;
+  h.setAttribute("value", char);
+  h.setAttribute("color", color);
+  h.setAttribute("align", "center");
+  h.setAttribute("width", width);
+  h.setAttribute("position", `${x} 0.1 ${z}`);
+  h.setAttribute("animation__up", `property: position; to: ${x * 1.4} ${1.1 + Math.random() * 0.4} ${z}; dur: 1400; easing: easeOutQuad`);
+  h.setAttribute("animation__shrink", "property: scale; from: 1 1 1; to: 0.05 0.05 0.05; dur: 1400; easing: easeInQuad; delay: 250");
+  heartLayer.appendChild(h);
+  setTimeout(() => h.parentNode && h.parentNode.removeChild(h), 1700);
+}
+function spawnHeart() {
+  spawnParticle("♥", Math.random() < 0.5 ? "#ff8fb1" : "#ff5d8f", 3.2);
+}
+function spawnZzz() {
+  spawnParticle("Z", "#9db4ff", 2.4);
+}
+
+/* =====================================================================
+ *  11. トースト表示
+ * ===================================================================== */
+let toastTimer = null;
+function showToast(msg) {
+  toast.textContent = msg;
+  toast.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove("show"), 1800);
+}
+</script>
+</body>
+</html>
