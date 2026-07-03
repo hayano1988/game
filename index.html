@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>ARフレンド | WebARキャラクターアプリ</title>
 <script src="https://cdn.jsdelivr.net/npm/aframe@1.5.0/dist/aframe-master.min.js"></script>
+<!-- animation-mixer（GLB内蔵アニメーション再生用） -->
+<script src="https://cdn.jsdelivr.net/npm/aframe-extras@7.5.4/dist/aframe-extras.min.js"></script>
 <style>
   :root{
     --ink:#3a3550;
@@ -88,7 +90,7 @@
   }
   #startBtn:active{transform:scale(.97);}
   #startBtn:disabled{opacity:.35;}
-  .hint{font-size:11px;opacity:.55;padding-bottom:8px;}
+  .hint{font-size:11px;opacity:.55;padding-bottom:8px;text-align:center;line-height:1.6;}
 
   /* ---------- AR画面 ---------- */
   #arScreen{background:#000;}
@@ -208,7 +210,7 @@
   </div>
 
   <button id="startBtn" disabled>スタート</button>
-  <p class="hint">※ カメラの使用を許可してください</p>
+  <p class="hint">※ カメラの使用を許可してください<br>※ 3Dモードは同梱の kuribo.glb を表示します（index.htmlと同じフォルダに置いてください）</p>
 </div>
 
 <!-- ============ AR画面 ============ -->
@@ -220,8 +222,8 @@
            vr-mode-ui="enabled: false"
            device-orientation-permission-ui="enabled: false"
            loading-screen="enabled: false">
-    <a-entity light="type: ambient; intensity: 0.9"></a-entity>
-    <a-entity light="type: directional; intensity: 0.7" position="1 2 1"></a-entity>
+    <a-entity light="type: ambient; intensity: 0.95"></a-entity>
+    <a-entity light="type: directional; intensity: 0.75" position="1 2 1"></a-entity>
 
     <a-camera look-controls="enabled: false" wasd-controls="enabled: false" fov="60">
 
@@ -236,6 +238,10 @@
 
               <!-- ================= 3Dモード ================= -->
               <a-entity id="char3D">
+                <!-- GLBモデル（MODEL_URL設定時に自動表示・animation-mixerで内蔵アニメ再生） -->
+                <a-entity id="gltfChar" visible="false"></a-entity>
+
+                <!-- フォールバック：簡易キャラ（モデル未設定時） -->
                 <a-entity id="primChar">
                   <a-cylinder id="bodyPart" radius="0.42" height="0.55" position="0 -0.35 0"
                               material="color: #7ee0c3; roughness: 0.9"></a-cylinder>
@@ -260,8 +266,6 @@
                   <a-torus id="mouth" radius="0.09" radius-tubular="0.014" arc="180" segments-tubular="16"
                            position="0 0.16 0.48" rotation="0 0 180" color="#3a3550"></a-torus>
                 </a-entity>
-                <!-- 3Dモデル用プレースホルダー（URL設定時に自動表示） -->
-                <a-entity id="gltfChar" visible="false"></a-entity>
               </a-entity>
 
               <!-- ================= 2Dモード（アクスタ風プレート） ================= -->
@@ -310,13 +314,32 @@
 
 <script>
 /* =====================================================================
- *  設定：3Dモデル（.glb / .gltf）を使う場合は下記URLを設定してください。
- *  空文字("")の場合は、基本図形で作った簡易キャラクターが表示されます。
+ *  ★ 3Dモデル設定 ★
+ *  アニメーション内蔵の .glb / .gltf のURLをここに設定してください。
+ *  （お手持ちのモデルや、ライセンス上利用可能な無料配布モデル等）
+ *  空文字("")の場合は基本図形のフォールバックキャラで動作します。
  * ===================================================================== */
-const MODEL_URLS = {
-  A: "",   // 例: "https://example.com/models/chara_a.glb"
-  B: ""    // 例: "https://example.com/models/chara_b.glb"
+const MODEL_URL = "kuribo.glb";   // アップロードされたモデル（index.htmlと同じフォルダに置いてください）
+
+/* モデル内のアニメーションクリップ名の対応表。
+ * お使いのモデルのクリップ名に合わせて書き換えてください。
+ * 名前が一致しない場合は部分一致で自動探索し、それでも無ければ idle→先頭クリップの順で代用します。
+ * ※ kuribo.glb はアニメーション（クリップ）を内蔵していない静的モデルのため、
+ *    現状は歩く/食べる等の内蔵アニメは再生されず、自動的に手続き型モーション
+ *    （バウンド・震え・呼吸など）で動きます。アニメ付きモデルに差し替えれば
+ *    自動的にそちらが優先されます。 */
+const CLIP_NAMES = {
+  idle:  "idle",    // 待機（smile / shy / angry / mischief の基本）
+  walk:  "walk",    // 歩行（巡回・おやつへ移動）
+  sleep: "sleep",   // 眠る
+  eat:   "eat",     // 食べる
+  joy:   "joy"      // 大よろこび（撫でられた時）
 };
+
+/* モデルの大きさ・位置・向きの微調整
+ * kuribo.glb はバウンディングボックスが原点中心の約1m立方（足元原点ではない）のため、
+ * offsetYは0付近が目安。大きさや高さが合わない場合はここを調整してください。 */
+const MODEL_TRANSFORM = { scale: 1.3, offsetY: 0.05, rotY: 0 };
 
 /* ---------- キャラクター定義・定数 ---------- */
 const CHARACTERS = {
@@ -326,10 +349,11 @@ const CHARACTERS = {
 const ANGRY_COLOR   = "#e85d5d";
 const CHEEK_COLOR   = "#ff8fb1";
 const CHEEK_SHY     = "#ff4d88";
-const TRANSITION_MS = 350;      // 表情遷移（約0.3〜0.4秒）
-const WALK_AREA = { xMin: -0.8, xMax: 0.8, yMin: -0.6, yMax: -0.2 };  // 巡回範囲
+const TRANSITION_MS = 350;
+const WALK_AREA = { xMin: -0.8, xMax: 0.8, yMin: -0.6, yMax: -0.2 };
 const CHAR_Z    = -3.4;
-const SLEEP_IDLE_MS = 20000;    // 無操作→ねむるまでの時間
+const SLEEP_IDLE_MS = 20000;
+const MIXER_FADE_S  = 0.3;    // 内蔵アニメのクロスフェード秒数
 
 /* ---------- DOM ---------- */
 const $ = (id) => document.getElementById(id);
@@ -347,7 +371,7 @@ let is2D = false;
 let arActive = false;
 
 /* =====================================================================
- *  0. 汎用トゥイーン（滑らかな数値補間エンジン）
+ *  0. 汎用トゥイーン
  * ===================================================================== */
 const tweens = new Map();
 function easeInOut(t){ return t < .5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2)/2; }
@@ -367,7 +391,89 @@ function getMat(el) {
 }
 
 /* =====================================================================
- *  1. 2Dモード用テクスチャ（5表情：アップロード＋デフォルト自動生成）
+ *  1. GLBモデル＋animation-mixer 制御
+ * ===================================================================== */
+const gltfChar = document.getElementById("gltfChar");
+let modelLoaded = false;
+let availableClips = [];
+let currentClip = "";
+let modelHasClips = false;
+
+const useModel = () => !!MODEL_URL;               // モデル運用か
+// 内蔵アニメで動かす状態か（クリップが無い静的モデルの場合は手続きモーションにフォールバック）
+const mixerActive = () => useModel() && modelLoaded && !is2D && modelHasClips;
+
+function setupModel() {
+  if (!useModel()) return;
+  gltfChar.setAttribute("visible", "true");
+  gltfChar.setAttribute("position", `0 ${MODEL_TRANSFORM.offsetY} 0`);
+  gltfChar.setAttribute("rotation", `0 ${MODEL_TRANSFORM.rotY} 0`);
+  gltfChar.setAttribute("scale", `${MODEL_TRANSFORM.scale} ${MODEL_TRANSFORM.scale} ${MODEL_TRANSFORM.scale}`);
+  gltfChar.addEventListener("model-loaded", (e) => {
+    modelLoaded = true;
+    const model = e.detail.model;
+    availableClips = (model.animations || []).map(a => a.name);
+    modelHasClips = availableClips.length > 0;
+    console.log("[ARフレンド] 利用可能なアニメーション:", availableClips);
+    if (!modelHasClips) {
+      showToast("このモデルは無アニメーションのため簡易モーションで動かします");
+    }
+    syncClipToState(true);
+  }, { once: true });
+  gltfChar.addEventListener("model-error", () => {
+    showToast("モデルの読込に失敗。簡易キャラで表示します");
+    gltfChar.setAttribute("visible", "false");
+    $("primChar").setAttribute("visible", "true");
+  }, { once: true });
+  gltfChar.setAttribute("gltf-model", "url(" + MODEL_URL + ")");
+}
+
+/* クリップ名の解決：指定名 → 部分一致 → idle → 先頭 */
+function resolveClip(key) {
+  const want = CLIP_NAMES[key] || key;
+  if (availableClips.includes(want)) return want;
+  const fuzzy = availableClips.find(n => n.toLowerCase().includes(want.toLowerCase()));
+  if (fuzzy) return fuzzy;
+  if (key !== "idle") return resolveClip("idle");
+  return availableClips[0] || "";
+}
+
+/* animation-mixer 経由で内蔵アニメを滑らかに切り替え */
+function setClip(key, { loop = "repeat", timeScale = 1 } = {}) {
+  if (!mixerActive()) return;
+  const clip = resolveClip(key);
+  if (!clip || clip === currentClip) return;
+  currentClip = clip;
+  gltfChar.setAttribute("animation-mixer", {
+    clip: clip,
+    loop: loop,
+    crossFadeDuration: MIXER_FADE_S,
+    timeScale: timeScale
+  });
+}
+
+/* 現在の感情・行動に合わせて再生クリップを同期 */
+let isMovingNow = false;
+function syncClipToState(force = false) {
+  if (!mixerActive()) return;
+  if (force) currentClip = "";
+  if (isMovingNow) {
+    setClip("walk", { timeScale: behavior === "toSnack" ? 1.4 : 1 });
+    return;
+  }
+  switch (mood) {
+    case "sleep":  setClip("sleep", { timeScale: 0.9 }); break;
+    case "eating": setClip("eat"); break;
+    case "joy":    setClip("joy", { timeScale: 1.1 }); break;
+    case "angry":  setClip("idle", { timeScale: 1.4 }); break;   // 専用クリップがあれば CLIP_NAMES に追加可
+    case "mischief": setClip("idle", { timeScale: 1.3 }); break;
+    case "shy":    // てれる：待機ポーズ（idle）でカメラをじっと見つめる
+    default:       setClip("idle"); break;
+  }
+}
+
+/* =====================================================================
+ *  2. 2Dモード用テクスチャ（5表情：アップロード＋デフォルト自動生成）
  * ===================================================================== */
 const uploads  = { smile: null, angry: null, joy: null, shy: null, sleep: null };
 let   textures = { smile: null, angry: null, joy: null, shy: null, sleep: null };
@@ -388,7 +494,6 @@ document.querySelectorAll('input[type="file"][data-mood]').forEach(input => {
   });
 });
 
-/* デフォルトのダミー表情をcanvasで生成 */
 function makeFaceTexture(mood, def) {
   const c = document.createElement("canvas");
   c.width = c.height = 512;
@@ -406,7 +511,6 @@ function makeFaceTexture(mood, def) {
   ctx.fillStyle = body;
   ctx.beginPath(); ctx.arc(256, 276, 196, 0, Math.PI * 2); ctx.fill();
 
-  // ほっぺ（てれ時は大きく濃く）
   ctx.fillStyle = (mood === "shy") ? "rgba(255,77,136,.9)" : "rgba(255,143,177,.8)";
   const cw = (mood === "shy") ? 38 : 26, ch = (mood === "shy") ? 24 : 17;
   ctx.beginPath(); ctx.ellipse(150, 320, cw, ch, 0, 0, Math.PI * 2); ctx.fill();
@@ -428,13 +532,13 @@ function makeFaceTexture(mood, def) {
   } else if (mood === "shy") {
     ctx.beginPath(); ctx.ellipse(186, 258, 14, 21, 0, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.ellipse(326, 258, 14, 21, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(256, 330, 16, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();  // ちいさな口
+    ctx.beginPath(); ctx.arc(256, 330, 16, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
     ctx.fillStyle = "#ff5d8f"; ctx.font = "54px sans-serif";
     ctx.fillText("♡", 404, 190);
   } else if (mood === "sleep") {
-    ctx.beginPath(); ctx.arc(186, 250, 22, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();  // とじた目
+    ctx.beginPath(); ctx.arc(186, 250, 22, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
     ctx.beginPath(); ctx.arc(326, 250, 22, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
-    ctx.beginPath(); ctx.ellipse(256, 330, 12, 9, 0, 0, Math.PI * 2); ctx.stroke();        // ちいさな口
+    ctx.beginPath(); ctx.ellipse(256, 330, 12, 9, 0, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = "#6f86d6";
     ctx.font = "bold 74px sans-serif"; ctx.fillText("Z", 392, 120);
     ctx.font = "bold 48px sans-serif"; ctx.fillText("z", 448, 168);
@@ -463,7 +567,7 @@ function texForMood(m) {
 }
 
 /* =====================================================================
- *  2. キャラクター選択 → スタート
+ *  3. キャラクター選択 → スタート
  * ===================================================================== */
 document.querySelectorAll(".char-card").forEach(card => {
   card.addEventListener("click", () => {
@@ -498,7 +602,7 @@ startBtn.addEventListener("click", async () => {
   }
   setMood("smile", true);
   scheduleRandomMood();
-  showToast(CHARACTERS[selectedChar].name + " があらわれた！");
+  showToast(useModel() ? "キャラクターがあらわれた！" : CHARACTERS[selectedChar].name + " があらわれた！");
 });
 
 backBtn.addEventListener("click", () => {
@@ -511,21 +615,16 @@ backBtn.addEventListener("click", () => {
   selectScreen.classList.add("active");
 });
 
-/* =====================================================================
- *  3. キャラクター見た目の適用（基本図形 or GLTF）
- * ===================================================================== */
+/* ---------- 3Dモードの見た目（GLB or フォールバック簡易キャラ） ---------- */
 function applyCharacter(key) {
   const def = CHARACTERS[key];
-  const url = MODEL_URLS[key];
-  const prim = $("primChar"), gltf = $("gltfChar");
+  const prim = $("primChar");
 
-  if (url) {
+  if (useModel()) {
     prim.setAttribute("visible", "false");
-    gltf.setAttribute("visible", "true");
-    gltf.setAttribute("gltf-model", "url(" + url + ")");
+    setupModel();
   } else {
-    gltf.setAttribute("visible", "false");
-    gltf.removeAttribute("gltf-model");
+    gltfChar.setAttribute("visible", "false");
     prim.setAttribute("visible", "true");
     ["bodyPart", "bodyBottom", "headPart"].forEach(id =>
       $(id).setAttribute("material", "color", def.baseColor));
@@ -548,7 +647,11 @@ function switchMode(to2D) {
   btn2D.classList.toggle("on", to2D);
   $("char3D").setAttribute("visible", !to2D);
   $("char2D").setAttribute("visible", to2D);
-  if (to2D) setPlateImmediate(texForMood(mood));
+  if (to2D) {
+    setPlateImmediate(texForMood(mood));
+  } else {
+    syncClipToState(true);    // 3D復帰時に内蔵アニメを現在ステートへ同期
+  }
   showToast(to2D ? "2D画像モード" : "3Dモード");
 }
 
@@ -586,7 +689,7 @@ function crossfadeTo(src) {
 }
 
 /* =====================================================================
- *  5. 感情ステート（smile / angry / mischief / joy / shy / sleep / eating）
+ *  5. 感情ステート
  * ===================================================================== */
 const MOODS = {
   smile:    { label: "😊 ごきげん",       chip: "rgba(58,53,80,.75)"   },
@@ -604,7 +707,7 @@ let lastInteraction = performance.now();
 
 function noteInteraction() { lastInteraction = performance.now(); }
 
-/* --- 3Dパーツの遷移ターゲット定義 --- */
+/* --- フォールバック簡易キャラ用の遷移ターゲット --- */
 function moodTargets3D(next) {
   const base = (CHARACTERS[selectedChar] || CHARACTERS.A).baseColor;
   const t = {
@@ -639,10 +742,14 @@ function setMood(next, instant = false) {
     else crossfadeTo(texForMood(next));
   }
 
-  /* --- 3D（簡易キャラ）：滑らかに補間 --- */
-  if (MODEL_URLS[selectedChar]) return;
-  const tgt = moodTargets3D(next);
+  /* --- 3D：GLBモデルなら内蔵アニメ切替 --- */
+  if (useModel()) {
+    syncClipToState();
+    return;
+  }
 
+  /* --- 3D：フォールバック簡易キャラは従来のトゥイーン --- */
+  const tgt = moodTargets3D(next);
   const mats = ["bodyPart", "bodyBottom", "headPart"].map(id => getMat($(id))).filter(Boolean);
   const fromCols = mats.map(m => m.color.clone());
   const toCol = new THREE_.Color(tgt.bodyColor);
@@ -677,7 +784,6 @@ function setMood(next, instant = false) {
   });
 }
 
-/* 時間経過によるランダム気分変化（てれる含む） */
 function scheduleRandomMood() {
   clearTimeout(moodTimer);
   moodTimer = setTimeout(() => {
@@ -700,7 +806,7 @@ function cycleMood() {
 function triggerJoy() {
   joyUntil = performance.now() + 3000;
   if (mood !== "joy") {
-    setMood("joy");
+    setMood("joy");        // GLB時は内蔵joyアニメ再生
     showToast("なでなで♥ うれしい！");
   }
   burstHearts();
@@ -718,11 +824,10 @@ function wakeUp() {
  * ===================================================================== */
 const snackLayer = $("snackLayer");
 let snackEl = null;
-let snackPos = null;          // カメラ空間座標 {x,y}
+let snackPos = null;
 let behavior = "wander";      // wander | toSnack | eating
 let eatUntil = 0;
 
-/* 画面ピクセル → カメラ空間（z = CHAR_Z 平面）へ逆投影 */
 function screenToCamPlane(px, py) {
   const cam = sceneEl.camera;
   if (!cam) return null;
@@ -743,7 +848,6 @@ function spawnSnack(px, py) {
   const y = Math.max(-0.8,  Math.min(0.15, p.y));
   removeSnack();
 
-  // イチゴ（赤い実＋緑のヘタ）
   snackEl = document.createElement("a-entity");
   snackEl.setAttribute("position", `${x} ${y} ${CHAR_Z}`);
   snackEl.innerHTML = `
@@ -767,7 +871,7 @@ function removeSnack() {
 function startEating(now) {
   behavior = "eating";
   eatUntil = now + 2000;
-  setMood("eating");
+  setMood("eating");      // GLB時は内蔵eatアニメ再生
   if (snackEl) {
     const o = snackEl.object3D;
     tween("snackEat", 1900, (k) => o.scale.setScalar(Math.max(0.001, 1 - k)));
@@ -775,7 +879,9 @@ function startEating(now) {
 }
 
 /* =====================================================================
- *  7. モーション＆AI（毎フレーム更新：巡回・おやつ・呼吸・トゥイーン）
+ *  7. モーション＆AI（毎フレーム更新）
+ *  GLBモデル時：内蔵アニメ（animation-mixer）＋進行方向の傾きのみ
+ *  簡易キャラ／2D時：従来の手続きモーション（bouncer / shaker）
  * ===================================================================== */
 const bouncer = $("bouncer"), shaker = $("shaker");
 const charRoot = $("charRoot");
@@ -793,7 +899,6 @@ function pickWalkTarget() {
   };
 }
 
-/* charRoot を target に向けて移動。到達で true */
 function moveToward(target, speed, dt) {
   const pos = charRoot.object3D.position;
   const dx = target.x - pos.x, dy = target.y - pos.y;
@@ -814,20 +919,19 @@ function animate(t) {
   let breathY = 1;
   let tiltTarget = 0;
   let movingBob = false;
+  let movingNow = false;
 
   if (arActive) {
-    /* --- 大よろこび終了 --- */
     if (mood === "joy" && t > joyUntil) setMood("smile");
 
-    /* --- ねむる（無操作20秒） --- */
     if (mood !== "sleep" && behavior === "wander" &&
         !["joy", "eating"].includes(mood) &&
         t - lastInteraction > SLEEP_IDLE_MS) {
-      setMood("sleep");
+      setMood("sleep");     // GLB時は内蔵sleepアニメ
       showToast("……zzz");
     }
 
-    /* --- 行動：おやつへ移動／食べる／巡回 --- */
+    /* --- 行動 --- */
     if (behavior === "toSnack" && snackPos) {
       const tgt = {
         x: Math.max(WALK_AREA.xMin - 0.15, Math.min(WALK_AREA.xMax + 0.15, snackPos.x)),
@@ -835,7 +939,7 @@ function animate(t) {
       };
       const r = moveToward(tgt, 0.65, dt);
       if (r.arrived) startEating(t);
-      else { tiltTarget = -r.dirX * 10; movingBob = true; }
+      else { tiltTarget = -r.dirX * 10; movingBob = true; movingNow = true; }
     } else if (behavior === "eating") {
       if (t > eatUntil) {
         removeSnack();
@@ -845,62 +949,71 @@ function animate(t) {
         showToast("ごちそうさま！");
       }
     } else if (behavior === "wander" && mood === "smile") {
-      /* --- 自動巡回：範囲内をトコトコ歩き回る --- */
       if (!walkTarget) {
         if (t > walkWaitUntil) pickWalkTarget();
       } else {
         const r = moveToward(walkTarget, 0.32, dt);
         if (r.arrived) {
           walkTarget = null;
-          walkWaitUntil = t + 900 + Math.random() * 2600;   // ひとやすみ
+          walkWaitUntil = t + 900 + Math.random() * 2600;
         } else {
-          tiltTarget = -r.dirX * 9;   // 進行方向へ体を傾ける
+          tiltTarget = -r.dirX * 9;
           movingBob = true;
+          movingNow = true;
         }
       }
     }
   }
 
-  /* --- 歩行の傾きをなめらかに --- */
+  /* --- 歩行 ⇄ 停止で内蔵アニメを walk/idle 系に同期 --- */
+  if (movingNow !== isMovingNow) {
+    isMovingNow = movingNow;
+    syncClipToState();
+  }
+
   walkTilt += (tiltTarget - walkTilt) * Math.min(1, dt * 8);
 
-  /* --- 感情ごとのモーション --- */
-  switch (mood) {
-    case "smile":
-      by = movingBob ? Math.abs(Math.sin(s * 8)) * 0.055    // トコトコ歩き
-                     : Math.abs(Math.sin(s * 3)) * 0.07;    // その場バウンド
-      break;
-    case "angry":
-      sx = (Math.random() - 0.5) * 0.045;
-      sy = (Math.random() - 0.5) * 0.02;
-      break;
-    case "mischief":
-      sx = Math.sin(s * 9) * 0.3;
-      rz = Math.sin(s * 9) * 10;
-      break;
-    case "joy":
-      by = Math.abs(Math.sin(s * 6)) * 0.28;
-      rz = Math.sin(s * 12) * 8;
-      break;
-    case "shy":       // モジモジ（カメラをじっと見つめたまま小さく左右へ）
-      sx = Math.sin(s * 4) * 0.05;
-      rz = Math.sin(s * 2) * 3;
-      break;
-    case "sleep":     // 座り込んでゆっくり呼吸
-      by = -0.14;
-      breathY = 1 + Math.sin(s * 1.4) * 0.035;
-      if (t > nextZzz) { spawnZzz(); nextZzz = t + 1600; }
-      break;
-    case "eating":    // バクバク上下に動く
-      by = Math.abs(Math.sin(s * 11)) * 0.09;
-      rz = Math.sin(s * 22) * 3;
-      break;
+  /* --- 手続きモーション（GLBモデル使用中の3Dモードではスキップ） --- */
+  if (!mixerActive()) {
+    switch (mood) {
+      case "smile":
+        by = movingBob ? Math.abs(Math.sin(s * 8)) * 0.055
+                       : Math.abs(Math.sin(s * 3)) * 0.07;
+        break;
+      case "angry":
+        sx = (Math.random() - 0.5) * 0.045;
+        sy = (Math.random() - 0.5) * 0.02;
+        break;
+      case "mischief":
+        sx = Math.sin(s * 9) * 0.3;
+        rz = Math.sin(s * 9) * 10;
+        break;
+      case "joy":
+        by = Math.abs(Math.sin(s * 6)) * 0.28;
+        rz = Math.sin(s * 12) * 8;
+        break;
+      case "shy":
+        sx = Math.sin(s * 4) * 0.05;
+        rz = Math.sin(s * 2) * 3;
+        break;
+      case "sleep":
+        by = -0.14;
+        breathY = 1 + Math.sin(s * 1.4) * 0.035;
+        break;
+      case "eating":
+        by = Math.abs(Math.sin(s * 11)) * 0.09;
+        rz = Math.sin(s * 22) * 3;
+        break;
+    }
   }
+
+  /* Zzzパーティクルはモデル使用時も維持 */
+  if (mood === "sleep" && t > nextZzz) { spawnZzz(); nextZzz = t + 1600; }
 
   bouncer.object3D.position.y = by;
   bouncer.object3D.scale.set(1, breathY, 1);
   shaker.object3D.position.set(sx, sy, 0);
-  shaker.object3D.rotation.z = (rz + walkTilt) * Math.PI / 180;
+  shaker.object3D.rotation.z = (rz + walkTilt) * Math.PI / 180;   // 進行方向への傾きは常に維持
   requestAnimationFrame(animate);
 }
 requestAnimationFrame(animate);
@@ -950,7 +1063,7 @@ touchLayer.addEventListener("touchstart", (e) => {
   if (e.target.closest("button") || e.target === sizeSlider) return;
 
   wokeThisTouch = (mood === "sleep");
-  if (wokeThisTouch) wakeUp();     // 画面タップで目を覚ます
+  if (wokeThisTouch) wakeUp();
 
   if (e.touches.length === 2) {
     pinching = true;
@@ -1003,9 +1116,8 @@ touchLayer.addEventListener("touchend", (e) => {
   if (e.touches.length < 2) pinching = false;
   if (!touching) return;
   touching = false;
-  if (wokeThisTouch) return;   // 起こしただけのタップは他の操作にしない
+  if (wokeThisTouch) return;
 
-  /* タップ（ほぼ動かず離した） */
   if (moved < 12 && startXY) {
     const body = toScreen(charRoot.object3D);
     const hitBody = body && Math.hypot(startXY.x - body.x, startXY.y - body.y) < bodyRadiusPx();
@@ -1013,7 +1125,7 @@ touchLayer.addEventListener("touchend", (e) => {
       if (onHead) triggerJoy();
       else if (!["joy", "eating"].includes(mood) && behavior !== "toSnack") cycleMood();
     } else {
-      spawnSnack(startXY.x, startXY.y);   // 何もない所 → おやつ設置
+      spawnSnack(startXY.x, startXY.y);
     }
   }
 });
