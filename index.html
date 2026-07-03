@@ -153,14 +153,11 @@
   <div class="char-cards">
     <button class="char-card" data-char="A">
       <span class="badge">えらんだ！</span>
-      <div class="preview p-a">
-        <div class="p-body"></div>
-        <div class="p-eye l"></div><div class="p-eye r"></div>
-        <div class="p-cheek l"></div><div class="p-cheek r"></div>
-        <div class="p-mouth"></div>
+      <div class="preview p-kuribo">
+        <img src="kuribo.png" alt="クリボー" style="width:100%;height:100%;object-fit:contain;">
       </div>
-      <div class="char-name">モチ</div>
-      <div class="char-desc">まるくてやわらかい。<br>のんびり屋さん。</div>
+      <div class="char-name">クリボー</div>
+      <div class="char-desc">まんまるでふわふわ。<br>のんびり屋さん。</div>
     </button>
 
     <button class="char-card" data-char="B">
@@ -343,7 +340,7 @@ const MODEL_TRANSFORM = { scale: 1.3, offsetY: 0.05, rotY: 0 };
 
 /* ---------- キャラクター定義・定数 ---------- */
 const CHARACTERS = {
-  A: { name: "モチ",   baseColor: "#7ee0c3", hasEars: false },
+  A: { name: "クリボー", baseColor: "#8a5a3c", hasEars: false },
   B: { name: "コハク", baseColor: "#ffa94f", hasEars: true  }
 };
 const ANGRY_COLOR   = "#e85d5d";
@@ -351,6 +348,10 @@ const CHEEK_COLOR   = "#ff8fb1";
 const CHEEK_SHY     = "#ff4d88";
 const TRANSITION_MS = 350;
 const WALK_AREA = { xMin: -0.8, xMax: 0.8, yMin: -0.6, yMax: -0.2 };
+/* 向き（Y軸回転・度数）：モデルの正面軸に合わせて調整してください。
+ * 既定値は「rotY=0で右向き」のモデルを想定しています。 */
+const FACE_YAW = { right: 0, left: 180, front: -90 };
+const FACE_TURN_SPEED = 8;   // 向き転換のなめらかさ
 const CHAR_Z    = -3.4;
 const SLEEP_IDLE_MS = 20000;
 const MIXER_FADE_S  = 0.3;    // 内蔵アニメのクロスフェード秒数
@@ -891,6 +892,13 @@ let walkWaitUntil = 0;
 let walkTilt = 0;
 let lastT = 0;
 let nextZzz = 0;
+let facingYaw = FACE_YAW.front;
+
+/* 角度の最短差分でなめらかに補間（180度付近での逆回りを防ぐ） */
+function lerpAngleDeg(current, target, t) {
+  let diff = ((target - current + 540) % 360) - 180;
+  return current + diff * t;
+}
 
 function pickWalkTarget() {
   walkTarget = {
@@ -920,6 +928,7 @@ function animate(t) {
   let tiltTarget = 0;
   let movingBob = false;
   let movingNow = false;
+  let moveDirX = 0;
 
   if (arActive) {
     if (mood === "joy" && t > joyUntil) setMood("smile");
@@ -939,7 +948,7 @@ function animate(t) {
       };
       const r = moveToward(tgt, 0.65, dt);
       if (r.arrived) startEating(t);
-      else { tiltTarget = -r.dirX * 10; movingBob = true; movingNow = true; }
+      else { tiltTarget = -r.dirX * 10; movingBob = true; movingNow = true; moveDirX = r.dirX; }
     } else if (behavior === "eating") {
       if (t > eatUntil) {
         removeSnack();
@@ -960,6 +969,7 @@ function animate(t) {
           tiltTarget = -r.dirX * 9;
           movingBob = true;
           movingNow = true;
+          moveDirX = r.dirX;
         }
       }
     }
@@ -972,6 +982,14 @@ function animate(t) {
   }
 
   walkTilt += (tiltTarget - walkTilt) * Math.min(1, dt * 8);
+
+  /* --- 向き：移動中は進行方向（右／左）、静止中は正面（カメラ目線） --- */
+  const faceTarget = movingNow
+    ? (moveDirX >= 0 ? FACE_YAW.right : FACE_YAW.left)
+    : FACE_YAW.front;
+  facingYaw = lerpAngleDeg(facingYaw, faceTarget, Math.min(1, dt * FACE_TURN_SPEED));
+  // 2Dのアクスタ画像は正面固定のまま（回転させない）。3Dモデル/簡易キャラのみ向きを反映。
+  bouncer.object3D.rotation.y = is2D ? 0 : facingYaw * Math.PI / 180;
 
   /* --- 手続きモーション（GLBモデル使用中の3Dモードではスキップ） --- */
   if (!mixerActive()) {
